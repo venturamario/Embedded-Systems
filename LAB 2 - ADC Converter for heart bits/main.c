@@ -9,15 +9,15 @@
 #define THRESHOLD 2380
 #define PULSES_PER_FREQUENCY 5
 
-int frequency = 0;
-int firstPulseTime = -1;
 int pulses = 0;
+int firstPulseTime = -1;
 
 adc_oneshot_unit_handle_t adc1_handle;
+bool lastHigh = false;  // Para debouncing
 
 void app_main(void)
 {
-    // Configure ADC
+    // Configurar ADC
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = ADC_UNIT_1,
     };
@@ -34,33 +34,28 @@ void app_main(void)
         adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &value);
 
         if (value > THRESHOLD) {
-            // Value = 1
-            printf("ADC Value: %d -------> PULSO DETECTADO \n", value);
-            if (pulses == 0) {
-                firstPulseTime = esp_timer_get_time() / 1000;
+            if (!lastHigh) {  // Solo contar el pulso al inicio de la subida
+                lastHigh = true;
                 pulses++;
-                printf("PRIMER PULSO DETECTADO EN TIEMPO %d\n", firstPulseTime);
 
+                if (pulses == 1) {
+                    firstPulseTime = esp_timer_get_time() / 1000; // tiempo en ms
+                    printf("Primer pulso detectado en tiempo %d ms\n", firstPulseTime);
+                }
 
-            } else if (pulses == PULSES_PER_FREQUENCY) {
-                int actualTime = esp_timer_get_time() / 1000;
-                int timeDiff = abs(actualTime - firstPulseTime);
-                frequency = timeDiff/PULSES_PER_FREQUENCY;                
-                printf("FRECUENCIA ACTUAL TRAS ULTIMNOS %d: %d ms\n", pulses, frequency);
+                if (pulses == PULSES_PER_FREQUENCY) {
+                    int actualTime = esp_timer_get_time() / 1000;
+                    int timeDiff = actualTime - firstPulseTime; // ms
+                    float frequency_ppm = (float)PULSES_PER_FREQUENCY * 60000 / timeDiff; // pulsos por minuto
+                    printf("Frecuencia actual tras %d pulsos: %.2f PPM\n", PULSES_PER_FREQUENCY, frequency_ppm);
 
-                pulses = 0;
-                frequency = 0; 
-                firstPulseTime = -1;
-
-            } else {
-                int actualTime = esp_timer_get_time() / 1000;
-                firstPulseTime += actualTime;
-                pulses++;
+                    // Reset para siguiente medición
+                    pulses = 0;
+                    firstPulseTime = -1;
+                }
             }
-
         } else {
-            // Value = 0
-            printf("ADC Value: %d\n", value);
+            lastHigh = false;  // Se baja el pulso
         }
 
         vTaskDelay(pdMS_TO_TICKS(500)); // Delay for 0'5 seconds
